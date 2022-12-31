@@ -15,73 +15,80 @@ from torchmetrics.functional import jaccard_index
 from torchvision.models.resnet import resnet50
 
 
+class ResBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, downsample=False):
+        super().__init__()
+        self.skip = True if in_channels != out_channels else False
+        self.downsample = downsample
+
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels // 4, kernel_size=1),
+            nn.BatchNorm2d(out_channels // 4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels // 4, out_channels // 4, kernel_size=3, padding=1, stride=2 if self.downsample else 1),
+            nn.BatchNorm2d(out_channels // 4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels // 4, out_channels, kernel_size=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+        if self.skip or self.downsample:
+            self.identity = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=2 if self.downsample else 1),
+                nn.BatchNorm2d(out_channels)
+            )
+
+    def forward(self, tensor):
+        x = self.conv(tensor)
+
+        if self.skip or self.downsample:
+            tensor = self.identity(tensor)
+        return x + tensor
+
+
 class ResNet50Seg(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
-        self.encoder = timm.create_model('resnet50', features_only=True)
-        # self.head = nn.Sequential(
-        #     nn.BatchNorm2d(1024),
-        #     nn.ReLU(),
-        #     nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1),
-        #     nn.BatchNorm2d(512),
-        #     nn.ReLU(),
-        #     nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1),
-        #     nn.BatchNorm2d(512),
-        #     nn.ReLU(),
-        #     nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1),
-        #     nn.BatchNorm2d(256),
-        #     nn.ReLU(),
-        #     nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
-        #     nn.BatchNorm2d(128),
-        #     nn.ReLU(),
-        #     nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
-        #     nn.BatchNorm2d(128),
-        #     nn.ReLU(),
-        #     nn.Conv2d(128, num_classes, kernel_size=7, stride=1, padding=3),
-        # )
-        self.dec1 = nn.Sequential(
-            nn.Conv2d(2048, 1024, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(1024),
-            nn.ReLU(),
-            nn.Conv2d(1024, 1024, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(1024),
-            nn.ReLU(),
-            nn.Upsample(scale_factor=2)
+        self.conv = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
         )
-        self.dec2 = nn.Sequential(
-            nn.Conv2d(2048, 1024, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(1024),
-            nn.ReLU(),
-            nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
-            nn.Upsample(scale_factor=2)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.block1 = nn.Sequential(
+            ResBlock(64, 64, downsample=True),
+            ResBlock(64, 64),
+            ResBlock(64, 128),
         )
-        self.dec3 = nn.Sequential(
-            nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
-            nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
+        self.block2 = nn.Sequential(
+            ResBlock(128, 128),
+            ResBlock(128, 128),
+            ResBlock(128, 128),
+            ResBlock(128, 256),
         )
-        self.last_conv = nn.Sequential(
-            nn.Conv2d(512, 256, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.Conv2d(256, num_classes, kernel_size=7, stride=1, padding=3),
+        self.block3 = nn.Sequential(
+            ResBlock(256, 256),
+            ResBlock(256, 256),
+            ResBlock(256, 256),
+            ResBlock(256, 256),
+            ResBlock(256, 256),
+            ResBlock(256, 512),
         )
+        self.block4 = nn.Sequential(
+            ResBlock(512, 512),
+            ResBlock(512, 512),
+            ResBlock(512, 512),
+        )
+        self.last_conv = nn.Conv2d(512, num_classes, kernel_size=1)
 
     def forward(self, tensor):
-        features = self.encoder(tensor)
-        x = self.dec1(features[4])
-        x = torch.cat([x, features[3]], dim=1)
-        x = self.dec2(x)
-        x = torch.cat([x, features[2]], dim=1)
-        x = self.dec3(x)
+        x = self.conv(tensor)
+        x = self.maxpool(x)
+        x = self.block1(x)
+        x = self.block2(x)
+        x = self.block3(x)
+        x = self.block4(x)
         x = self.last_conv(x)
         return x
 
@@ -153,8 +160,7 @@ if __name__ == '__main__':
     model = ResNet50Seg(10)
     inputs = torch.randn(2, 3, 512, 512)
     outputs = model(inputs)
-    for o in outputs:
-        print(o.shape)
+    print(outputs.shape)
     # torch.Size([2, 64, 256, 256])
     # torch.Size([2, 256, 128, 128])
     # torch.Size([2, 512, 64, 64])
