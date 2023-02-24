@@ -34,6 +34,7 @@ parser.add_argument('--epochs', type=int, default=5)
 parser.add_argument('--batch_size', type=int, default=8)
 parser.add_argument('--learning_rate', type=float, default=0.0001)
 parser.add_argument('--num_classes', type=int, default=8)
+parser.add_argument('--model_pretrained', type=bool, default=True)
 args = parser.parse_args()
 
 if __name__ == '__main__':
@@ -56,13 +57,13 @@ if __name__ == '__main__':
 
     image_transform = torchvision.transforms.Compose(
         [
-            torchvision.transforms.Resize((512, 512), interpolation=torchvision.transforms.InterpolationMode.NEAREST,),
+            torchvision.transforms.Resize((512, 512), interpolation=torchvision.transforms.InterpolationMode.NEAREST, ),
             torchvision.transforms.ToTensor()
         ]
     )
     label_transform = torchvision.transforms.Compose(
         [
-            torchvision.transforms.Resize((64, 64), interpolation=torchvision.transforms.InterpolationMode.NEAREST,),
+            torchvision.transforms.Resize((64, 64), interpolation=torchvision.transforms.InterpolationMode.NEAREST, ),
             torchvision.transforms.PILToTensor(),
         ]
     )
@@ -83,7 +84,7 @@ if __name__ == '__main__':
                          precision=args.precision,
                          max_epochs=args.epochs,
                          # log_every_n_steps=1,
-                         strategy='ddp',
+                         strategy='ddp_find_unused_parameters_false',
                          # num_sanity_val_steps=0,
                          # limit_train_batches=5,
                          # limit_val_batches=1,

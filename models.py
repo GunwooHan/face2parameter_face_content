@@ -12,93 +12,40 @@ from torch.optim import lr_scheduler
 import torch.nn.functional as F
 from torchmetrics.functional import jaccard_index
 
-from torchvision.models.resnet import resnet50
+from torchvision.models import resnet50, ResNet50_Weights
 
 
-class ResBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, downsample=False):
-        super().__init__()
-        self.skip = True if in_channels != out_channels else False
-        self.downsample = downsample
+def _make_model_resnet50seg(num_classes, pretraiend=False):
+    base_model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1 if pretraiend else None)
 
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels // 4, kernel_size=1),
-            nn.BatchNorm2d(out_channels // 4),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels // 4, out_channels // 4, kernel_size=3, padding=1, stride=2 if self.downsample else 1),
-            nn.BatchNorm2d(out_channels // 4),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels // 4, out_channels, kernel_size=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
-        )
+    base_model.layer1[0].conv2.stride = (2, 2)
+    base_model.layer1[0].downsample[0].stride = (2, 2)
+    base_model.layer2[0].conv2.stride = (1, 1)
+    base_model.layer2[0].downsample[0].stride = (1, 1)
+    base_model.layer3[0].conv2.stride = (1, 1)
+    base_model.layer3[0].downsample[0].stride = (1, 1)
+    base_model.layer4[0].conv2.stride = (1, 1)
+    base_model.layer4[0].downsample[0].stride = (1, 1)
 
-        if self.skip or self.downsample:
-            self.identity = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=2 if self.downsample else 1),
-                nn.BatchNorm2d(out_channels)
-            )
-
-    def forward(self, tensor):
-        x = self.conv(tensor)
-
-        if self.skip or self.downsample:
-            tensor = self.identity(tensor)
-        return x + tensor
-
-
-class ResNet50Seg(nn.Module):
-    def __init__(self, num_classes):
-        super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
-        )
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.block1 = nn.Sequential(
-            ResBlock(64, 64, downsample=True),
-            ResBlock(64, 64),
-            ResBlock(64, 128),
-        )
-        self.block2 = nn.Sequential(
-            ResBlock(128, 128),
-            ResBlock(128, 128),
-            ResBlock(128, 128),
-            ResBlock(128, 256),
-        )
-        self.block3 = nn.Sequential(
-            ResBlock(256, 256),
-            ResBlock(256, 256),
-            ResBlock(256, 256),
-            ResBlock(256, 256),
-            ResBlock(256, 256),
-            ResBlock(256, 512),
-        )
-        self.block4 = nn.Sequential(
-            ResBlock(512, 512),
-            ResBlock(512, 512),
-            ResBlock(512, 512),
-        )
-        self.last_conv = nn.Conv2d(512, num_classes, kernel_size=1)
-
-    def forward(self, tensor):
-        x = self.conv(tensor)
-        x = self.maxpool(x)
-        x = self.block1(x)
-        x = self.block2(x)
-        x = self.block3(x)
-        x = self.block4(x)
-        x = self.last_conv(x)
-        return x
-
+    model = nn.Sequential(
+        base_model.conv1,
+        base_model.bn1,
+        base_model.relu,
+        base_model.maxpool,
+        base_model.layer1,
+        base_model.layer2,
+        base_model.layer3,
+        base_model.layer4,
+        nn.Conv2d(2048, num_classes, kernel_size=1)
+    )
+    return model
 
 class FacialContentSegmentation(pl.LightningModule):
     def __init__(self, args):
         super(FacialContentSegmentation, self).__init__()
         self.args = args
         self.loss_fn = nn.CrossEntropyLoss()
-        self.model = ResNet50Seg(self.args.num_classes)
+        self.model = _make_model_resnet50seg(self.args.num_classes, self.args.model_pretrained)
         self.label_name = {0: "backgroud", 1: "skin", 2: "nose", 3: "eye", 4: "eyebrow", 5: "upper_lip", 6: "lower_lip",
                            7: "hair"}
 
@@ -157,10 +104,15 @@ class FacialContentSegmentation(pl.LightningModule):
 
 
 if __name__ == '__main__':
-    model = ResNet50Seg(10)
+    model = _make_model_resnet50seg(10, True)
     inputs = torch.randn(2, 3, 512, 512)
     outputs = model(inputs)
     print(outputs.shape)
+    model = _make_model_resnet50seg(10, False)
+    inputs = torch.randn(2, 3, 512, 512)
+    outputs = model(inputs)
+    print(outputs.shape)
+
     # torch.Size([2, 64, 256, 256])
     # torch.Size([2, 256, 128, 128])
     # torch.Size([2, 512, 64, 64])
