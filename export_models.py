@@ -40,5 +40,5 @@ args = parser.parse_args()
 
 if __name__ == '__main__':
     model = FacialContentSegmentation(args).load_from_checkpoint(
-        "checkpoints/resnet50_torchvision_pretrained_val/jaccard_index_value=0.2625.ckpt", args=args)
+        "checkpoints/resnet50_torchvision_pretrained_val/jaccard_index_value=0.8391.ckpt", args=args)
     torch.save(model.model, "resnet50_facial_content.pth")

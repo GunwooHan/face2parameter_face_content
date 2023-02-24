@@ -58,7 +58,16 @@ if __name__ == '__main__':
     image_transform = torchvision.transforms.Compose(
         [
             torchvision.transforms.Resize((512, 512), interpolation=torchvision.transforms.InterpolationMode.NEAREST, ),
-            torchvision.transforms.ToTensor()
+            torchvision.transforms.RandomGrayscale(p=0.1),
+            torchvision.transforms.RandomEqualize(p=0.1),
+            torchvision.transforms.RandomAdjustSharpness(0,p=0.1),
+            torchvision.transforms.RandomAdjustSharpness(0,p=0.1),
+            torchvision.transforms.RandomAdjustSharpness(2,p=0.1),
+            torchvision.transforms.RandomPosterize(2, p=0.1),
+            torchvision.transforms.RandomApply(
+                [torchvision.transforms.ColorJitter(saturation=.1, contrast=.2, brightness=.5, hue=.3), ], p=0.1),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.RandomErasing(p=0.1, inplace=True)
         ]
     )
     label_transform = torchvision.transforms.Compose(
